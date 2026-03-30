@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "postinstall": "cp node_modules/@browserbasehq/stagehand/dist/cjs/index.js node_modules/@browserbasehq/stagehand/dist/index.js 2>/dev/null || true",
+    "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

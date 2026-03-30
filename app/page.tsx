@@ -6,154 +6,278 @@ import {
   startBBSSession,
 } from "@/app/api/stagehand/run";
 import DebuggerIframe from "@/components/stagehand/debuggerIframe";
-import { V3Options } from "@browserbasehq/stagehand";
-import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { defineStepper } from "@stepperize/react";
 import { useCallback, useEffect, useState } from "react";
+import React from "react";
+
+const { Stepper } = defineStepper(
+  { id: "enter-url", title: "Enter URL" },
+  { id: "running", title: "Analyzing" },
+  { id: "results", title: "Results" }
+);
+
+type SitemapResult = {
+  links: { label: string; href: string }[];
+};
 
 export default function Home() {
-  const [config, setConfig] = useState<V3Options | null>(null);
+  const [config, setConfig] = useState<Awaited<
+    ReturnType<typeof getConfig>
+  > | null>(null);
+  const [url, setUrl] = useState("");
   const [running, setRunning] = useState(false);
   const [debugUrl, setDebugUrl] = useState<string | undefined>(undefined);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [sitemap, setSitemap] = useState<SitemapResult | null>(null);
 
   const fetchConfig = useCallback(async () => {
-    const config = await getConfig();
-    setConfig(config);
-    const warningToShow: string[] = [];
-    if (!config.hasLLMCredentials) {
-      warningToShow.push(
+    const cfg = await getConfig();
+    setConfig(cfg);
+    const warnings: string[] = [];
+    if (!cfg.hasLLMCredentials) {
+      warnings.push(
         "No LLM credentials found. Edit stagehand.config.ts to configure your LLM client."
       );
     }
-    if (!config.hasBrowserbaseCredentials) {
-      warningToShow.push(
-        "No BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID found. You will probably want this to run Stagehand in the cloud."
+    if (!cfg.hasBrowserbaseCredentials) {
+      warnings.push(
+        "No BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID found."
       );
     }
-    setWarning(warningToShow.join("\n"));
+    if (warnings.length) setWarning(warnings.join("\n"));
   }, []);
-
-  const startScript = useCallback(async () => {
-    if (!config) return;
-
-    setRunning(true);
-    setError(null);
-
-    try {
-      if (config.env === "BROWSERBASE") {
-        const { sessionId, debugUrl } = await startBBSSession();
-        setDebugUrl(debugUrl);
-        setSessionId(sessionId);
-        await runStagehand(sessionId);
-      } else {
-        await runStagehand();
-      }
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setRunning(false);
-    }
-  }, [config]);
 
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
 
+  const handleRun = useCallback(
+    async (stepper: { navigation: { goTo: (id: string) => void } }) => {
+      if (!config || !url) return;
+
+      setRunning(true);
+      setError(null);
+      setSitemap(null);
+      stepper.navigation.goTo("running");
+
+      try {
+        let sid: string | undefined;
+        if (config.env === "BROWSERBASE") {
+          const session = await startBBSSession();
+          setDebugUrl(session.debugUrl);
+          setSessionId(session.sessionId);
+          sid = session.sessionId;
+        }
+        const result = await runStagehand(url, sid);
+        setSitemap(result);
+        stepper.navigation.goTo("results");
+      } catch (err) {
+        setError((err as Error).message);
+        stepper.navigation.goTo("enter-url");
+      } finally {
+        setRunning(false);
+      }
+    },
+    [config, url]
+  );
+
   if (config === null) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        Loading...
+      </div>
+    );
   }
 
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:block hidden"
-          src="/logo_dark.svg"
-          alt="Stagehand logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <Image
-          className="block dark:hidden"
-          src="/logo_light.svg"
-          alt="Stagehand logo"
-          width={180}
-          height={38}
-          priority
-        />
-        {running && <DebuggerIframe debugUrl={debugUrl} env={config.env} />}
-        <ul className="list-inside text-xl text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 font-semibold">
-              api/stagehand/main.ts
-            </code>
-            .
-          </li>
-        </ul>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-background p-8 font-sans text-foreground">
+      <div className="w-full max-w-2xl">
+        <h1 className="mb-2 text-center text-3xl font-bold tracking-tight text-balance">
+          Stagehand Site Analyzer
+        </h1>
+        <p className="mb-8 text-center text-muted-foreground">
+          Enter a URL to view the page and extract its sitemap
+        </p>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          {!running && (
-            <a
-              href="#"
-              className=" border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 hover:bg-yellow-500"
-              onClick={(e) => {
-                e.preventDefault();
-                startScript();
-              }}
-            >
-              🤘 Run Stagehand
-            </a>
+        <Stepper.Root className="w-full space-y-6" orientation="horizontal">
+          {({ stepper }) => (
+            <>
+              <Stepper.List className="flex list-none items-center justify-between gap-2">
+                {stepper.state.all.map((stepData, index) => {
+                  const currentIndex = stepper.state.current.index;
+                  const status =
+                    index < currentIndex
+                      ? "success"
+                      : index === currentIndex
+                        ? "active"
+                        : "inactive";
+                  const isLast = index === stepper.state.all.length - 1;
+                  return (
+                    <React.Fragment key={stepData.id}>
+                      <Stepper.Item
+                        step={stepData.id}
+                        className="flex shrink-0 items-center gap-2"
+                      >
+                        <div
+                          className={`flex size-8 items-center justify-center rounded-full text-sm font-medium ${
+                            status === "active"
+                              ? "bg-primary text-primary-foreground"
+                              : status === "success"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-secondary-foreground"
+                          }`}
+                        >
+                          {status === "success" ? "✓" : index + 1}
+                        </div>
+                        <span
+                          className={`text-sm font-medium ${
+                            status === "inactive"
+                              ? "text-muted-foreground"
+                              : "text-foreground"
+                          }`}
+                        >
+                          {stepData.title}
+                        </span>
+                      </Stepper.Item>
+                      {!isLast && (
+                        <div
+                          className={`h-0.5 flex-1 ${
+                            status === "success" ? "bg-primary" : "bg-muted"
+                          }`}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </Stepper.List>
+
+              {stepper.flow.switch({
+                "enter-url": () => (
+                  <Card className="p-6">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleRun(stepper);
+                      }}
+                      className="flex flex-col gap-4"
+                    >
+                      <label
+                        htmlFor="url-input"
+                        className="text-sm font-medium text-foreground"
+                      >
+                        Website URL
+                      </label>
+                      <Input
+                        id="url-input"
+                        type="url"
+                        placeholder="https://example.com"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        required
+                      />
+                      <Button type="submit" disabled={!url || running}>
+                        Analyze Site
+                      </Button>
+                    </form>
+                  </Card>
+                ),
+                running: () => (
+                  <Card className="space-y-4 p-6">
+                    <p className="text-center text-sm text-muted-foreground">
+                      Analyzing{" "}
+                      <span className="font-medium text-foreground">{url}</span>
+                      ...
+                    </p>
+                    <DebuggerIframe
+                      debugUrl={debugUrl}
+                      env={config.env}
+                    />
+                  </Card>
+                ),
+                results: () => (
+                  <Card className="space-y-4 p-6">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold text-foreground">
+                        Sitemap Results
+                      </h2>
+                      <Badge variant="secondary">
+                        {sitemap?.links.length ?? 0} links
+                      </Badge>
+                    </div>
+                    {sitemap && sitemap.links.length > 0 ? (
+                      <ul className="max-h-80 space-y-2 overflow-y-auto">
+                        {sitemap.links.map((link, i) => (
+                          <li
+                            key={i}
+                            className="flex items-center justify-between rounded-lg border border-border bg-secondary/50 px-3 py-2"
+                          >
+                            <span className="text-sm font-medium text-foreground">
+                              {link.label}
+                            </span>
+                            <a
+                              href={link.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              {link.href}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No links found.
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setSitemap(null);
+                        setDebugUrl(undefined);
+                        setSessionId(undefined);
+                        stepper.navigation.goTo("enter-url");
+                      }}
+                    >
+                      Analyze Another Site
+                    </Button>
+                  </Card>
+                ),
+              })}
+            </>
           )}
-          {sessionId && (
-            <a
-              href={`https://www.browserbase.com/sessions/${sessionId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="border border-solid transition-colors flex items-center justify-center bg-[#F9F6F4] text-black gap-2 hover:border-[#F7F7F7] hover:text-black text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 group "
-            >
-              <div className="relative w-4 h-4">
-                <Image
-                  src="/browserbase_grayscale.svg"
-                  alt="Browserbase"
-                  width={16}
-                  height={16}
-                  className="absolute opacity-0 group-hover:opacity-100 transition-opacity"
-                />
-                <Image
-                  src="/browserbase.svg"
-                  alt="Browserbase"
-                  width={16}
-                  height={16}
-                  className="absolute group-hover:opacity-0 transition-opacity"
-                />
-              </div>
-              View Session on Browserbase
-            </a>
-          )}
-          <a
-            className="border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://docs.stagehand.dev"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+        </Stepper.Root>
+
         {error && (
-          <div className="bg-red-400 text-white rounded-md p-2 max-w-lg">
+          <div className="mt-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
             Error: {error}
           </div>
         )}
         {warning && (
-          <div className="bg-yellow-400 text-black rounded-md p-2 max-w-lg">
+          <div className="mt-4 rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
             <strong>Warning:</strong> {warning}
           </div>
         )}
-      </main>
+
+        {sessionId && (
+          <div className="mt-4 text-center">
+            <a
+              href={`https://www.browserbase.com/sessions/${sessionId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-muted-foreground underline hover:text-foreground"
+            >
+              View Session on Browserbase
+            </a>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

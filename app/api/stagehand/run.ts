@@ -1,13 +1,3 @@
-/**
- * 🤘 Welcome to Stagehand!
- *
- * This is the server-side entry point for Stagehand.
- *
- * To edit the Stagehand script, see `api/stagehand/main.ts`.
- * To edit config, see `stagehand.config.ts`.
- *
- * In this quickstart, we'll be automating a browser session to show you the power of Stagehand.
- */
 "use server";
 
 import StagehandConfig from "@/stagehand.config";
@@ -15,14 +5,15 @@ import Browserbase from "@browserbasehq/sdk";
 import { Stagehand } from "@browserbasehq/stagehand";
 import { main } from "./main";
 
-export async function runStagehand(sessionId?: string) {
+export async function runStagehand(url: string, sessionId?: string) {
   const stagehand = new Stagehand({
     ...StagehandConfig,
     browserbaseSessionID: sessionId,
   });
   await stagehand.init();
-  await main({ stagehand });
+  const result = await main({ stagehand, url });
   await stagehand.close();
+  return result;
 }
 
 export async function startBBSSession() {

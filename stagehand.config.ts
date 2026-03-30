@@ -16,10 +16,7 @@ const StagehandConfig: V3Options = {
   localBrowserLaunchOptions: {
     headless: false,
   } /* Options for local browser launch (headless, args, etc.) */,
-  model: {
-    modelName: "gpt-4o",
-    apiKey: process.env.OPENAI_API_KEY,
-  } /* Model configuration: can be string or object with modelName and apiKey */,
+  model: "gateway/anthropic/claude-opus-4-6-fast" /* Model via Vercel AI Gateway - uses AI_GATEWAY_API_KEY from .env */,
   llmClient: undefined /* Optional: custom LLM client implementation */,
   systemPrompt: undefined /* Optional: system prompt for model */,
   logger: (message: LogLine) =>
